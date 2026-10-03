@@ -1,0 +1,33 @@
+name: bench-app
+on:
+  workflow_dispatch:
+    inputs:
+      runner: { description: runs-on label, required: true, default: macos-15 }
+jobs:
+  build:
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix: { trial: [1, 2, 3] }
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 60
+    steps:
+      - name: build IceCubesApp b2db303 (cold, no cache)
+        shell: bash
+        run: |
+          set -euo pipefail
+          t(){ python3 -c 'import time;print(f"{time.time():.3f}")'; }
+          echo "TIMING script_start $(t)"
+          sysctl -n hw.model hw.ncpu hw.memsize; sw_vers -productVersion
+          XC=$(ls -d /Applications/Xcode_26.2*.app /Applications/Xcode*26.2*.app 2>/dev/null | head -1 || true)
+          [ -n "$XC" ] || XC=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || true)
+          [ -n "$XC" ] || XC=$(xcode-select -p | sed 's#/Contents/Developer##')
+          export DEVELOPER_DIR="$XC/Contents/Developer"; xcodebuild -version | head -1
+          W=$RUNNER_TEMP/bench; rm -rf "$W"; mkdir -p "$W"; cd "$W"
+          a=$(t); curl -fsSL -o src.tgz https://github.com/Dimillian/IceCubesApp/archive/b2db3033fbf67a97b54d25d6dac2df8a029b26b1.tar.gz; tar xzf src.tgz; b=$(t); echo "TIMING fetch_src $(python3 -c "print(round($b-$a,1))")"
+          cd IceCubesApp-*; printf 'DEVELOPMENT_TEAM =\nBUNDLE_ID_PREFIX = im.cicd.bench\n' > IceCubesApp.xcconfig
+          F="CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO COMPILER_INDEX_STORE_ENABLE=NO"
+          a=$(t); xcodebuild -resolvePackageDependencies -scheme IceCubesApp -project IceCubesApp.xcodeproj -clonedSourcePackagesDirPath "$W/spm" -derivedDataPath "$W/dd" -scmProvider system $F > "$W/resolve.log" 2>&1; b=$(t); echo "TIMING spm_resolve $(python3 -c "print(round($b-$a,1))")"
+          a=$(t); set +e; xcodebuild build -scheme IceCubesApp -project IceCubesApp.xcodeproj -clonedSourcePackagesDirPath "$W/spm" -derivedDataPath "$W/dd" -destination 'generic/platform=iOS Simulator' -configuration Debug -disableAutomaticPackageResolution -scmProvider system $F > "$W/build.log" 2>&1; rc=$?; set -e; b=$(t)
+          echo "TIMING app_build $(python3 -c "print(round($b-$a,1))") rc=$rc"; tail -3 "$W/build.log" || true
+          test $rc -eq 0

@@ -1,0 +1,16 @@
+name: owned-idle-cpu-validation
+on:
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: xenoci-macos
+    timeout-minutes: 30
+    steps:
+      - name: Silent single-core CPU work for 13 minutes (no output, no network)
+        shell: bash
+        run: |
+          end=$((SECONDS + 780))
+          while [ "$SECONDS" -lt "$end" ]; do :; done
+      - name: Done
+        shell: bash
+        run: echo IDLE_CPU_VALIDATION_OK

@@ -15,7 +15,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git clone --depth 1 --branch v1.47.1 https://github.com/tokio-rs/tokio.git "$RUNNER_TEMP/tokio"
+          git clone --depth 1 --branch tokio-1.47.5 https://github.com/tokio-rs/tokio.git "$RUNNER_TEMP/tokio"
           cd "$RUNNER_TEMP/tokio"
           cargo test --workspace --all-features --no-run
           du -sh target

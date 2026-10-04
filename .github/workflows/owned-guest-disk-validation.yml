@@ -1,0 +1,31 @@
+name: owned-guest-disk-validation
+on:
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: xenoci-macos
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Free space before build
+        shell: bash
+        run: df -h "$HOME" "$GITHUB_WORKSPACE"
+      - name: Large Rust debug target (cargo test, real crates)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch v1.47.1 https://github.com/tokio-rs/tokio.git "$RUNNER_TEMP/tokio"
+          cd "$RUNNER_TEMP/tokio"
+          cargo test --workspace --all-features --no-run
+          du -sh target
+      - name: Fill the work volume past the old 8.4 GiB limit
+        shell: bash
+        run: |
+          set -euo pipefail
+          T="$GITHUB_WORKSPACE/target-fill"
+          mkdir -p "$T"
+          for i in $(seq 1 25); do dd if=/dev/zero of="$T/blob$i" bs=1m count=1024 status=none; done
+          du -sh "$T"
+          df -h "$GITHUB_WORKSPACE"
+          rm -rf "$T"

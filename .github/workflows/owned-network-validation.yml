@@ -1,0 +1,68 @@
+name: owned-network-validation
+on:
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: xenoci-macos
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - name: Cold Rust and pnpm dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          W="$RUNNER_TEMP/owned-network-validation"
+          mkdir -p "$W/rust/src" "$W/rust/tests" "$W/node"
+          cd "$W/rust"
+          cat > Cargo.toml <<'EOF'
+          [package]
+          name = "owned-network-validation"
+          version = "0.1.0"
+          edition = "2021"
+          [dependencies]
+          tokio = { version = "1", features = ["full"] }
+          reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+          serde = { version = "1", features = ["derive"] }
+          serde_json = "1"
+          axum = "0.8"
+          tracing-subscriber = "0.3"
+          clap = { version = "4", features = ["derive"] }
+          regex = "1"
+          uuid = { version = "1", features = ["v4"] }
+          EOF
+          printf '%s\n' 'pub fn add(a: u32, b: u32) -> u32 { a + b }' '#[cfg(test)] mod tests { #[test] fn unit() { assert_eq!(super::add(2, 3), 5); } }' > src/lib.rs
+          printf '%s\n' '#[test] fn integration() { assert_eq!(owned_network_validation::add(7, 8), 15); }' > tests/integration.rs
+          export CARGO_HOME="$RUNNER_TEMP/owned-cargo-cold"
+          cargo fetch
+          cargo fmt
+          cd "$W/node"
+          cat > package.json <<'EOF'
+          {"name":"owned-network-validation","private":true,"scripts":{"lint":"eslint .","test":"node --test *.test.cjs"},"dependencies":{"next":"16.3.4","react":"19","react-dom":"19","vite":"latest","vitest":"latest","typescript":"latest","webpack":"latest","rollup":"latest","zod":"latest","express":"latest","rxjs":"latest","@aws-sdk/client-s3":"latest","@azure/storage-blob":"latest"},"devDependencies":{"eslint":"latest","@eslint/js":"latest"}}
+          EOF
+          printf '%s\n' 'import js from "@eslint/js"; export default [js.configs.recommended, {files:["*.cjs"],languageOptions:{sourceType:"commonjs"}}];' > eslint.config.mjs
+          printf '%s\n' 'module.exports = (a, b) => a + b;' > add.cjs
+          printf '%s\n' 'const test = require("node:test"); const assert = require("node:assert/strict"); const add = require("./add.cjs"); test("unit", () => assert.equal(add(2, 3), 5)); test("integration", () => assert.deepEqual([1, 2, 3].map(x => add(x, 2)), [3, 4, 5]));' > add.test.cjs
+          pnpm install --ignore-scripts --store-dir "$RUNNER_TEMP/owned-pnpm-cold"
+      - name: Rust lint unit and integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/owned-network-validation/rust"
+          export CARGO_HOME="$RUNNER_TEMP/owned-cargo-cold"
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test --all-targets
+      - name: Node lint unit and integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/owned-network-validation/node"
+          pnpm lint
+          pnpm test

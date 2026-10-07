@@ -7,6 +7,7 @@ on:
     inputs:
       runner: { description: runs-on label, required: true, default: macos-26 }
       mode: { description: cold or warm, required: true, default: cold }
+      xcode: { description: Xcode version, required: true, default: '26.6' }
 jobs:
   prime:
     if: ${{ inputs.mode == 'warm' }}
@@ -28,7 +29,8 @@ jobs:
           XC=/Applications/Xcode_${XC_VER}.app
           export DEVELOPER_DIR="$XC/Contents/Developer"; xcodebuild -version | tr '\n' ' '; echo
           B=$HOME/bench-roi; mkdir -p "$B"
-          if [ "$MODE" = cold ]; then rm -rf "$B/spm" "$B/dd"; fi
+          # cold = nothing reused: our SwiftPM/DerivedData dirs plus the global SwiftPM and Xcode caches a long-lived VM keeps.
+          if [ "$MODE" = cold ]; then rm -rf "$B/spm" "$B/dd" "$HOME/Library/Caches/org.swift.swiftpm" "$HOME/Library/org.swift.swiftpm" "$HOME/Library/Developer/Xcode/DerivedData"; fi
           a=$(t); rm -rf "$B/src"; mkdir -p "$B/src"; cd "$B/src"
           curl -fsSL -o src.tgz https://github.com/Dimillian/IceCubesApp/archive/b2db3033fbf67a97b54d25d6dac2df8a029b26b1.tar.gz; tar xzf src.tgz; rm src.tgz
           b=$(t); echo "TIMING fetch_src $(d $a $b)"
@@ -43,10 +45,10 @@ jobs:
 
           BENCH_EOF
       - name: prime build (cold)
-        env: { MODE: cold }
+        env: { MODE: cold, XC_VER: "${{ inputs.xcode }}" }
         run: bash "$RUNNER_TEMP/bench.sh"
       - uses: actions/cache/save@v4
-        with: { path: "~/bench-roi/spm\n~/bench-roi/dd", key: "bench-roi-${{ github.run_id }}" }
+        with: { path: "~/bench-roi/spm\n~/bench-roi/dd", key: "bench-roi-${{ inputs.xcode }}-${{ github.run_id }}" }
   trial:
     needs: [prime]
     if: ${{ always() && (inputs.mode == 'cold' || needs.prime.result == 'success') }}
@@ -60,7 +62,7 @@ jobs:
       - name: cache restore
         if: ${{ inputs.mode == 'warm' }}
         uses: actions/cache/restore@v4
-        with: { path: "~/bench-roi/spm\n~/bench-roi/dd", key: "bench-roi-${{ github.run_id }}", fail-on-cache-miss: true }
+        with: { path: "~/bench-roi/spm\n~/bench-roi/dd", key: "bench-roi-${{ inputs.xcode }}-${{ github.run_id }}", fail-on-cache-miss: true }
       - name: bench script
         run: |
           cat > "$RUNNER_TEMP/bench.sh" <<'BENCH_EOF'
@@ -76,7 +78,8 @@ jobs:
           XC=/Applications/Xcode_${XC_VER}.app
           export DEVELOPER_DIR="$XC/Contents/Developer"; xcodebuild -version | tr '\n' ' '; echo
           B=$HOME/bench-roi; mkdir -p "$B"
-          if [ "$MODE" = cold ]; then rm -rf "$B/spm" "$B/dd"; fi
+          # cold = nothing reused: our SwiftPM/DerivedData dirs plus the global SwiftPM and Xcode caches a long-lived VM keeps.
+          if [ "$MODE" = cold ]; then rm -rf "$B/spm" "$B/dd" "$HOME/Library/Caches/org.swift.swiftpm" "$HOME/Library/org.swift.swiftpm" "$HOME/Library/Developer/Xcode/DerivedData"; fi
           a=$(t); rm -rf "$B/src"; mkdir -p "$B/src"; cd "$B/src"
           curl -fsSL -o src.tgz https://github.com/Dimillian/IceCubesApp/archive/b2db3033fbf67a97b54d25d6dac2df8a029b26b1.tar.gz; tar xzf src.tgz; rm src.tgz
           b=$(t); echo "TIMING fetch_src $(d $a $b)"
@@ -91,5 +94,5 @@ jobs:
 
           BENCH_EOF
       - name: build IceCubesApp (${{ inputs.mode }})
-        env: { MODE: "${{ inputs.mode }}" }
+        env: { MODE: "${{ inputs.mode }}", XC_VER: "${{ inputs.xcode }}" }
         run: bash "$RUNNER_TEMP/bench.sh"

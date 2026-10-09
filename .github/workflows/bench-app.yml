@@ -2,7 +2,7 @@ name: bench-app
 on:
   workflow_dispatch:
     inputs:
-      runner: { description: runs-on label, required: true, default: macos-15 }
+      runner: { description: runs-on label, required: true, default: xenoci-macos }
 jobs:
   build:
     strategy:

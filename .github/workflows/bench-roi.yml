@@ -5,7 +5,7 @@ name: bench-roi
 on:
   workflow_dispatch:
     inputs:
-      runner: { description: runs-on label, required: true, default: macos-26 }
+      runner: { description: runs-on label, required: true, default: xenoci-macos }
       mode: { description: cold or warm, required: true, default: cold }
       xcode: { description: Xcode version, required: true, default: '26.6' }
 jobs:

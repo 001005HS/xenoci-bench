@@ -20,7 +20,7 @@ jobs:
           time npm install --no-audit --no-fund lodash express typescript
       - name: docker build and run
         run: |
-          printf 'FROM alpine:3.20\nRUN apk add --no-cache curl\nCMD ["sh","-c","echo docker-ok"]\n' > Dockerfile
+          printf 'FROM ubuntu:24.04\nRUN apt-get update -qq && apt-get install -y -qq --no-install-recommends curl ca-certificates >/dev/null\nCMD ["sh","-c","echo docker-ok"]\n' > Dockerfile
           time docker build -t lab-probe .
           docker run --rm lab-probe
       - name: cpu

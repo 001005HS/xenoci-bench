@@ -1,0 +1,6 @@
+services:
+  proof:
+    image: ${XENOCI_DOCKER_QA_IMAGE}
+    build:
+      context: .
+    command: ["cat", "/app/output.sha256"]

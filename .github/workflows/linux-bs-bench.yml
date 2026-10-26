@@ -1,0 +1,128 @@
+name: linux-bs-bench
+run-name: bsb-${{ inputs.kind }}-${{ inputs.runner }}-${{ inputs.probe }}
+# linux-bs-bench (2026-10-27): same five job kinds on GitHub ubuntu-latest and XenoCI dev, one job per run, manual dispatch only.
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: ubuntu-latest or xenoci-2vcpu-ubuntu-2404
+        required: true
+      kind:
+        description: echo | npm | build | compose | bkcache
+        required: true
+      probe:
+        description: new value per run
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: bsb-${{ inputs.runner }}
+  cancel-in-progress: false
+env:
+  DOCKER_BUILD_SUMMARY: "false"
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
+jobs:
+  echo:
+    if: ${{ inputs.kind == 'echo' }}
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - run: echo hello
+  npm:
+    if: ${{ inputs.kind == 'npm' }}
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: cache restore
+        id: c
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: bsb-npm-${{ runner.os }}-${{ hashFiles('bench/npm/package-lock.json') }}
+      - name: npm ci
+        working-directory: bench/npm
+        run: |
+          echo "CACHE_HIT=${{ steps.c.outputs.cache-hit }}"
+          npm ci --no-audit --no-fund
+      - name: test
+        working-directory: bench/npm
+        run: npm test
+  build:
+    if: ${{ inputs.kind == 'build' }}
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: dockerfile
+        run: |
+          mkdir -p bctx
+          printf 'FROM ubuntu:24.04\nARG PROBE=0\nRUN apt-get update -qq && apt-get install -y -qq --no-install-recommends curl ca-certificates >/dev/null\nRUN echo $PROBE > /probe\nCMD ["sh","-c","echo docker-ok"]\n' > bctx/Dockerfile
+      - uses: docker/setup-buildx-action@v3
+        id: bx
+      - name: build-push-action
+        uses: docker/build-push-action@v6
+        with:
+          context: bctx
+          builder: ${{ steps.bx.outputs.name }}
+          build-args: PROBE=${{ inputs.probe }}
+          push: false
+          load: true
+          tags: bsb-build:ci
+      - run: docker run --rm bsb-build:ci
+  compose:
+    if: ${{ inputs.kind == 'compose' }}
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: compose build and run
+        working-directory: xenoci-docker/fixture
+        env:
+          XENOCI_DOCKER_QA_IMAGE: bsb-compose:ci
+          PROBE: ${{ inputs.probe }}
+        run: |
+          docker compose --progress plain build --build-arg PROBE="$PROBE"
+          docker compose run --rm proof
+          docker compose down --rmi local --volumes
+  bkcache:
+    if: ${{ inputs.kind == 'bkcache' }}
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: cleanup
+        if: ${{ inputs.runner != 'ubuntu-latest' }}
+        uses: ./xenoci-docker/integrations/docker-builder/cleanup
+      - id: xenoci
+        if: ${{ inputs.runner != 'ubuntu-latest' }}
+        uses: ./xenoci-docker/integrations/docker-builder/setup
+        with:
+          root: ${{ steps.cleanup.outputs.root }}
+          cache-key: bsb-bkcache/fixture
+          buildkit-image: moby/buildkit@sha256:98cc6a3fc46220d00f8224ae483f3274fc874e9be8d7dd1e2e2c5481209228b5
+          helper-image: debian@sha256:ec31d744f83f4a73447ba045aaab9409997efe5cc706eca4890c1be36cc1606a
+      - id: gh
+        if: ${{ inputs.runner == 'ubuntu-latest' }}
+        uses: docker/setup-buildx-action@v3
+      - name: build (XenoCI kept BuildKit state)
+        if: ${{ inputs.runner != 'ubuntu-latest' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: xenoci-docker/fixture
+          file: xenoci-docker/fixture/Dockerfile
+          builder: ${{ steps.xenoci.outputs.builder }}
+          build-args: PROBE=${{ inputs.probe }}
+          load: true
+          tags: bsb-bk:ci
+      - name: build (GitHub cache type=gha)
+        if: ${{ inputs.runner == 'ubuntu-latest' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: xenoci-docker/fixture
+          file: xenoci-docker/fixture/Dockerfile
+          builder: ${{ steps.gh.outputs.name }}
+          build-args: PROBE=${{ inputs.probe }}
+          load: true
+          tags: bsb-bk:ci
+          cache-from: type=gha,scope=bsb-bkcache
+          cache-to: type=gha,scope=bsb-bkcache,mode=max
+      - run: docker run --rm --entrypoint cat bsb-bk:ci /app/prior-marker

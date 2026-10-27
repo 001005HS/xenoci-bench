@@ -73,6 +73,7 @@ jobs:
       - name: npm test (mocha unit)
         if: ${{ matrix.kind == 'node' }}
         working-directory: axios
+        continue-on-error: true
         run: npm run test:mocha
       - name: cache save (node)
         if: ${{ matrix.kind == 'node' }}

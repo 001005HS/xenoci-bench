@@ -12,7 +12,7 @@ on:
         description: blacksmith-6vcpu-macos-26 | xenoci-macos | macos-26
         required: true
       mode:
-        description: cold or warm
+        description: cold, warm (actions/cache) or sticky (Xeno-CI sticky disk, xenoci-macos only)
         required: true
         default: cold
       probe:
@@ -75,6 +75,12 @@ jobs:
           ref: b2db3033fbf67a97b54d25d6dac2df8a029b26b1
           path: app
           persist-credentials: false
+      - name: sticky disk (spm+derived)
+        if: ${{ inputs.mode == 'sticky' }}
+        uses: Xeno-CI/build/stickydisk@v1.7.13
+        with:
+          key: mvb-ios
+          path: ${{ env.W }}
       - name: cache restore (spm+derived)
         if: ${{ inputs.mode == 'warm' }}
         uses: actions/cache/restore@v4
@@ -126,6 +132,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO > "$RUNNER_TEMP/test.log" 2>&1 || { grep -E "error:|failed|BUILD FAILED" "$RUNNER_TEMP/test.log" | head -40; tail -20 "$RUNNER_TEMP/test.log"; exit 1; }
           grep -E 'Executed|Test run with|TEST SUCCEEDED' "$RUNNER_TEMP/test.log" | tail -4
       - name: cache save (spm+derived)
+        if: ${{ inputs.mode != 'sticky' }}
         uses: actions/cache/save@v4
         with:
           path: |

@@ -39,9 +39,20 @@ jobs:
       - name: select xcode
         shell: bash
         run: |
-          XC=$(ls -d /Applications/Xcode_26.6*.app /Applications/Xcode-26.6*.app /Applications/Xcode_26*.app /Applications/Xcode-26*.app /Applications/Xcode.app 2>/dev/null | head -1 || true)
+          xcrun simctl list runtimes || true
+          RT=$(xcrun simctl list runtimes -j | python3 -c 'import json,sys
+          r=[x["version"] for x in json.load(sys.stdin)["runtimes"] if x.get("isAvailable") and x["platform"]=="iOS" and x["version"].startswith("26.")]
+          r.sort(key=lambda v:[int(n) for n in v.split(".")])
+          print(r[-1] if r else "")')
+          MM=$(echo "$RT" | cut -d. -f1-2)
+          XC=""
+          for c in /Applications/Xcode_${MM}.app /Applications/Xcode-${MM}.app /Applications/Xcode_${MM}*.app /Applications/Xcode-${MM}*.app /Applications/Xcode.app; do
+            [ -d "$c" ] && { XC=$c; break; }
+          done
+          echo "runtime=$RT xcode=$XC"
           echo "DEVELOPER_DIR=$XC/Contents/Developer" >> "$GITHUB_ENV"
           DEVELOPER_DIR="$XC/Contents/Developer" xcodebuild -version
+          DEVELOPER_DIR="$XC/Contents/Developer" xcodebuild -showsdks | grep -i simulator || true
       - name: checkout IceCubesApp
         uses: actions/checkout@v4
         with:

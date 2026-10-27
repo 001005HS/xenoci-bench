@@ -35,11 +35,11 @@ jobs:
         run: |
           sysctl -n hw.model hw.ncpu hw.memsize machdep.cpu.brand_string || true
           sw_vers -productVersion; df -h / | tail -1
-          ls -d /Applications/Xcode*.app
+          ls -d /Applications/Xcode*.app || true
       - name: select xcode
         shell: bash
         run: |
-          XC=$(ls -d /Applications/Xcode_26.6*.app /Applications/Xcode-26.6*.app /Applications/Xcode_26*.app /Applications/Xcode-26*.app /Applications/Xcode.app 2>/dev/null | head -1)
+          XC=$(ls -d /Applications/Xcode_26.6*.app /Applications/Xcode-26.6*.app /Applications/Xcode_26*.app /Applications/Xcode-26*.app /Applications/Xcode.app 2>/dev/null | head -1 || true)
           echo "DEVELOPER_DIR=$XC/Contents/Developer" >> "$GITHUB_ENV"
           DEVELOPER_DIR="$XC/Contents/Developer" xcodebuild -version
       - name: checkout IceCubesApp

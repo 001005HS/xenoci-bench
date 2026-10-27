@@ -1,7 +1,7 @@
 name: mac-vs-bs-1028
 run-name: mvb-${{ inputs.runner }}-${{ inputs.mode }}-${{ inputs.probe }}
 # mac-2x (2026-10-28): the same iOS workload on any macOS runner label.
-# IceCubesApp 98098b9c: SwiftPM resolve, app build for iOS Simulator, ModelsTests on a booted iPhone simulator.
+# IceCubesApp b2db3033: SwiftPM resolve, app build for iOS Simulator, ModelsTests on a booted iPhone simulator.
 # mode=cold: no cache restore (cache is still saved so later warm runs can restore).
 # mode=warm: actions/cache restore of SwiftPM checkouts + DerivedData for this runner label, then save.
 # Manual dispatch only. Measurement data comes from the GitHub jobs API (queued/started/completed + steps).
@@ -44,11 +44,16 @@ jobs:
           r=[x["version"] for x in json.load(sys.stdin)["runtimes"] if x.get("isAvailable") and x["platform"]=="iOS" and x["version"].startswith("26.")]
           r.sort(key=lambda v:[int(n) for n in v.split(".")])
           print(r[-1] if r else "")')
-          MM=$(echo "$RT" | cut -d. -f1-2)
           XC=""
-          for c in /Applications/Xcode_${MM}.app /Applications/Xcode-${MM}.app /Applications/Xcode_${MM}*.app /Applications/Xcode-${MM}*.app /Applications/Xcode.app; do
-            [ -d "$c" ] && { XC=$c; break; }
+          for c in /Applications/Xcode_26.6.app /Applications/Xcode-26.6.app /Applications/Xcode_26.6*.app; do
+            [ -d "$c" ] && xcrun simctl list runtimes | grep -q 'iOS 26\.6' && { XC=$c; break; }
           done
+          if [ -z "$XC" ]; then
+            MM=$(echo "$RT" | cut -d. -f1-2)
+            for c in /Applications/Xcode_${MM}.app /Applications/Xcode-${MM}.app /Applications/Xcode_${MM}*.app /Applications/Xcode-${MM}*.app /Applications/Xcode.app; do
+              [ -d "$c" ] && { XC=$c; break; }
+            done
+          fi
           echo "runtime=$RT xcode=$XC"
           echo "DEVELOPER_DIR=$XC/Contents/Developer" >> "$GITHUB_ENV"
           DEVELOPER_DIR="$XC/Contents/Developer" xcodebuild -version
@@ -57,7 +62,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Dimillian/IceCubesApp
-          ref: 98098b9c4b5928f89f338203193c2bf40ab7f38c
+          ref: b2db3033fbf67a97b54d25d6dac2df8a029b26b1
           path: app
           persist-credentials: false
       - name: cache restore (spm+derived)
@@ -87,7 +92,7 @@ jobs:
             -destination 'generic/platform=iOS Simulator' ARCHS=arm64 \
             -clonedSourcePackagesDirPath "$W/spm" -derivedDataPath "$W/dd" \
             -disableAutomaticPackageResolution -scmProvider system \
-            CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO > "$W.build.log" 2>&1 || { tail -60 "$W.build.log"; exit 1; }
+            CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO > "$W.build.log" 2>&1 || { grep -E "error:|warning: .*macro|BUILD FAILED" "$W.build.log" | head -40; tail -20 "$W.build.log"; exit 1; }
           tail -3 "$W.build.log"
       - name: simulator boot
         shell: bash
@@ -108,7 +113,7 @@ jobs:
           set -euo pipefail
           xcodebuild test -scheme ModelsTests -destination "id=$SIM" \
             -clonedSourcePackagesDirPath "$W/spm" -derivedDataPath "$W/dd" -scmProvider system \
-            CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO > "$W.test.log" 2>&1 || { tail -60 "$W.test.log"; exit 1; }
+            CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO > "$W.test.log" 2>&1 || { grep -E "error:|failed|BUILD FAILED" "$W.test.log" | head -40; tail -20 "$W.test.log"; exit 1; }
           grep -E 'Executed|Test run with|TEST SUCCEEDED' "$W.test.log" | tail -4
       - name: cache save (spm+derived)
         uses: actions/cache/save@v4

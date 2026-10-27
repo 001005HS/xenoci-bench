@@ -1,0 +1,60 @@
+name: linux-bs-job
+run-name: bsj-${{ inputs.runner }}-${{ inputs.probe }}
+# linux-bs-job (2026-10-27): the linux-lab-compare steps unchanged (checkout, setup-node, npm install, docker build),
+# then the standard docker/setup-buildx-action + build-push-action path (docker-container builder) that failed before
+# agent 0.1.9. N rounds in ONE run, one job at a time. Manual dispatch only.
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        required: true
+        default: ubuntu-latest
+      rounds:
+        default: '[1,2,3,4,5,6,7,8,9,10]'
+      probe:
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: bsj-${{ inputs.runner }}
+  cancel-in-progress: false
+env:
+  DOCKER_BUILD_SUMMARY: "false"
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
+jobs:
+  build:
+    name: r${{ matrix.round }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        round: ${{ fromJSON(inputs.rounds) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: npm install
+        run: |
+          mkdir -p app && cd app && npm init -y >/dev/null
+          time npm install --no-audit --no-fund lodash express typescript
+      - name: docker build and run
+        run: |
+          printf 'FROM ubuntu:24.04\nRUN apt-get update -qq && apt-get install -y -qq --no-install-recommends curl ca-certificates >/dev/null\nCMD ["sh","-c","echo docker-ok"]\n' > Dockerfile
+          time docker build -t lab-probe .
+          docker run --rm lab-probe
+      - uses: docker/setup-buildx-action@v3
+        id: bx
+      - name: build-push-action (docker-container builder)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          builder: ${{ steps.bx.outputs.name }}
+          build-args: PROBE=${{ inputs.probe }}-${{ matrix.round }}
+          push: false
+          load: true
+          tags: bsj-bx:ci
+      - name: buildx run
+        run: docker run --rm bsj-bx:ci

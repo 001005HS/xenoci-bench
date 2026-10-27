@@ -48,13 +48,23 @@ jobs:
           for c in /Applications/Xcode_26.6.app /Applications/Xcode-26.6.app /Applications/Xcode_26.6*.app; do
             [ -d "$c" ] && xcrun simctl list runtimes | grep -q 'iOS 26\.6' && { XC=$c; break; }
           done
+          DEST='generic/platform=iOS Simulator'
           if [ -z "$XC" ]; then
             MM=$(echo "$RT" | cut -d. -f1-2)
-            for c in /Applications/Xcode_${MM}.app /Applications/Xcode-${MM}.app /Applications/Xcode_${MM}*.app /Applications/Xcode-${MM}*.app /Applications/Xcode.app; do
+            for c in /Applications/Xcode_${MM}.app /Applications/Xcode-${MM}.app /Applications/Xcode_${MM}*.app /Applications/Xcode-${MM}*.app; do
               [ -d "$c" ] && { XC=$c; break; }
             done
           fi
-          echo "runtime=$RT xcode=$XC"
+          if [ -z "$XC" ]; then
+            XC=$(ls -d /Applications/Xcode_26.*.app /Applications/Xcode-26.*.app 2>/dev/null | sort -V | tail -1 || true)
+            U=$(xcrun simctl list devices available -j | RT="$RT" python3 -c 'import json,sys,os
+          d=json.load(sys.stdin)["devices"]; k="com.apple.CoreSimulator.SimRuntime.iOS-"+os.environ["RT"].replace(".","-")
+          print(next((x["udid"] for x in d.get(k,[]) if x["name"].startswith("iPhone")),""))')
+            DEST="id=$U"
+            echo "fallback: no Xcode for runtime $RT, newest Xcode 26.x with that runtime's device"
+          fi
+          echo "DEST=$DEST" >> "$GITHUB_ENV"
+          echo "runtime=$RT xcode=$XC dest=$DEST"
           echo "DEVELOPER_DIR=$XC/Contents/Developer" >> "$GITHUB_ENV"
           DEVELOPER_DIR="$XC/Contents/Developer" xcodebuild -version
           DEVELOPER_DIR="$XC/Contents/Developer" xcodebuild -showsdks | grep -i simulator || true
@@ -89,7 +99,7 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild build -project IceCubesApp.xcodeproj -scheme IceCubesApp -configuration Debug \
-            -destination 'generic/platform=iOS Simulator' ARCHS=arm64 \
+            -destination "$DEST" ARCHS=arm64 \
             -clonedSourcePackagesDirPath "$W/spm" -derivedDataPath "$W/dd" \
             -disableAutomaticPackageResolution -scmProvider system \
             CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO > "$RUNNER_TEMP/build.log" 2>&1 || { grep -E "error:|warning: .*macro|BUILD FAILED" "$RUNNER_TEMP/build.log" | head -40; tail -20 "$RUNNER_TEMP/build.log"; exit 1; }

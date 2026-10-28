@@ -1,7 +1,7 @@
 name: img-tools-1028
 run-name: imt-${{ inputs.runner }}-${{ inputs.probe }}
 # speed-image (2026-10-28): what each runner image already carries for the setup actions, timed per step by the
-# GitHub jobs API. One job, steps in a fixed order. Manual dispatch only; no secrets, no caches written.
+# GitHub jobs API, with the guest NIC receive counter between steps (rx N). One job, steps in a fixed order. Manual dispatch only; no secrets, no caches written.
 on:
   workflow_dispatch:
     inputs:
@@ -34,43 +34,69 @@ jobs:
           rustup toolchain list 2>/dev/null; java -version 2>&1 | head -1; go version 2>/dev/null
           docker image ls --format 'img {{.Repository}}:{{.Tag}} {{.Size}}' 2>/dev/null
           env | grep -E '^(JAVA_HOME|GOROOT|ANDROID|CHROME|ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE)' | sort
+      - name: rx 1
+        run: awk '/:/ && $1 !~ /^lo:/ {s+=$2} END {print "RX_BYTES=" s}' /proc/net/dev
       - name: setup-node 22
         uses: actions/setup-node@v4
         with: { node-version: 22 }
+      - name: rx 2
+        run: awk '/:/ && $1 !~ /^lo:/ {s+=$2} END {print "RX_BYTES=" s}' /proc/net/dev
       - name: setup-node 24
         uses: actions/setup-node@v4
         with: { node-version: 24 }
+      - name: rx 3
+        run: awk '/:/ && $1 !~ /^lo:/ {s+=$2} END {print "RX_BYTES=" s}' /proc/net/dev
       - name: setup-python 3.12
         uses: actions/setup-python@v5
         with: { python-version: '3.12' }
+      - name: rx 4
+        run: awk '/:/ && $1 !~ /^lo:/ {s+=$2} END {print "RX_BYTES=" s}' /proc/net/dev
       - name: setup-python 3.13
         uses: actions/setup-python@v5
         with: { python-version: '3.13' }
+      - name: rx 5
+        run: awk '/:/ && $1 !~ /^lo:/ {s+=$2} END {print "RX_BYTES=" s}' /proc/net/dev
       - name: setup-go 1.24
         uses: actions/setup-go@v5
         with: { go-version: '1.24', cache: false }
+      - name: rx 6
+        run: awk '/:/ && $1 !~ /^lo:/ {s+=$2} END {print "RX_BYTES=" s}' /proc/net/dev
       - name: setup-go 1.25
         uses: actions/setup-go@v5
         with: { go-version: '1.25', cache: false }
+      - name: rx 7
+        run: awk '/:/ && $1 !~ /^lo:/ {s+=$2} END {print "RX_BYTES=" s}' /proc/net/dev
       - name: setup-java temurin 17
         uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '17' }
+      - name: rx 8
+        run: awk '/:/ && $1 !~ /^lo:/ {s+=$2} END {print "RX_BYTES=" s}' /proc/net/dev
       - name: setup-java temurin 21
         uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '21' }
+      - name: rx 9
+        run: awk '/:/ && $1 !~ /^lo:/ {s+=$2} END {print "RX_BYTES=" s}' /proc/net/dev
       - name: setup-ruby 3.3
         uses: ruby/setup-ruby@v1
         with: { ruby-version: '3.3' }
+      - name: rx 10
+        run: awk '/:/ && $1 !~ /^lo:/ {s+=$2} END {print "RX_BYTES=" s}' /proc/net/dev
       - name: rust stable
         run: |
           if command -v rustup >/dev/null; then rustup toolchain install stable --profile minimal && rustup default stable
           else curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable; fi
           "$HOME/.cargo/bin/cargo" --version
+      - name: rx 11
+        run: awk '/:/ && $1 !~ /^lo:/ {s+=$2} END {print "RX_BYTES=" s}' /proc/net/dev
       - name: rust 1.82.0
         run: |
           "$HOME/.cargo/bin/rustup" toolchain install 1.82.0 --profile minimal
           "$HOME/.cargo/bin/cargo" +1.82.0 --version
+      - name: rx 12
+        run: awk '/:/ && $1 !~ /^lo:/ {s+=$2} END {print "RX_BYTES=" s}' /proc/net/dev
       - name: setup-buildx
         uses: docker/setup-buildx-action@v3
+      - name: rx 13
+        run: awk '/:/ && $1 !~ /^lo:/ {s+=$2} END {print "RX_BYTES=" s}' /proc/net/dev
       - name: versions after setup
         run: node -v; python -V; go version; java -version 2>&1 | head -1; ruby -v

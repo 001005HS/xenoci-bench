@@ -1,0 +1,76 @@
+name: img-tools-1028
+run-name: imt-${{ inputs.runner }}-${{ inputs.probe }}
+# speed-image (2026-10-28): what each runner image already carries for the setup actions, timed per step by the
+# GitHub jobs API. One job, steps in a fixed order. Manual dispatch only; no secrets, no caches written.
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: blacksmith-2vcpu-ubuntu-2404 | xenoci-2vcpu-ubuntu-2404 | ubuntu-24.04
+        required: true
+      probe:
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: imt-${{ inputs.runner }}
+  cancel-in-progress: false
+jobs:
+  tools:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 20
+    steps:
+      - name: inventory
+        run: |
+          set +e
+          nproc; free -g | head -2; uname -r; df -h / | tail -1
+          . /etc/os-release; echo "os=$VERSION"
+          echo "RUNNER_TOOL_CACHE=$RUNNER_TOOL_CACHE AGENT_TOOLSDIRECTORY=$AGENT_TOOLSDIRECTORY"
+          ls -d "${RUNNER_TOOL_CACHE:-/opt/hostedtoolcache}"/*/* 2>/dev/null | sed 's#.*/hostedtoolcache/##' | tr '\n' ' '; echo
+          du -sm "${RUNNER_TOOL_CACHE:-/opt/hostedtoolcache}" 2>/dev/null
+          for c in node npm yarn pnpm python3 pip3 pipx go java mvn gradle ruby rustup cargo rustc docker gh cmake ninja clang gcc bazel bazelisk kubectl helm terraform aws az gcloud dotnet php swift deno bun; do
+            p=$(command -v $c); echo "tool $c ${p:-MISSING}"
+          done
+          rustup toolchain list 2>/dev/null; java -version 2>&1 | head -1; go version 2>/dev/null
+          docker image ls --format 'img {{.Repository}}:{{.Tag}} {{.Size}}' 2>/dev/null
+          env | grep -E '^(JAVA_HOME|GOROOT|ANDROID|CHROME|ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE)' | sort
+      - name: setup-node 22
+        uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: setup-node 24
+        uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - name: setup-python 3.12
+        uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: setup-python 3.13
+        uses: actions/setup-python@v5
+        with: { python-version: '3.13' }
+      - name: setup-go 1.24
+        uses: actions/setup-go@v5
+        with: { go-version: '1.24', cache: false }
+      - name: setup-go 1.25
+        uses: actions/setup-go@v5
+        with: { go-version: '1.25', cache: false }
+      - name: setup-java temurin 17
+        uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - name: setup-java temurin 21
+        uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - name: setup-ruby 3.3
+        uses: ruby/setup-ruby@v1
+        with: { ruby-version: '3.3' }
+      - name: rust stable
+        run: |
+          if command -v rustup >/dev/null; then rustup toolchain install stable --profile minimal && rustup default stable
+          else curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable; fi
+          "$HOME/.cargo/bin/cargo" --version
+      - name: rust 1.82.0
+        run: |
+          "$HOME/.cargo/bin/rustup" toolchain install 1.82.0 --profile minimal
+          "$HOME/.cargo/bin/cargo" +1.82.0 --version
+      - name: setup-buildx
+        uses: docker/setup-buildx-action@v3
+      - name: versions after setup
+        run: node -v; python -V; go version; java -version 2>&1 | head -1; ruby -v

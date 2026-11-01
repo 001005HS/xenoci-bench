@@ -1,0 +1,134 @@
+name: mkt-metrics-1101
+run-name: mkt-${{ inputs.kind }}-${{ inputs.runner }}-${{ inputs.mode }}-${{ inputs.probe }}
+# mkt-metrics-1101: the same workloads on any runner label (manual dispatch only).
+# kind=cpu: ripgrep 14.1.1 cargo build --release from empty target (deps fetched first, build offline) + single-thread benches.
+# kind=cache: actions/cache save of N MiB random data, restore on a fresh runner; restore wall time from in-step stamps.
+# kind=docker: umami v3.4.1 Dockerfile. backend=gha: setup-buildx + build-push-action cache type=gha (GitHub default way).
+#              backend=plain: build-push-action on the runner's default docker builder (no cache config).
+on:
+  workflow_dispatch:
+    inputs:
+      kind: { required: true, description: cpu | cache | docker }
+      runner: { required: true }
+      mode: { required: false, default: cold, description: docker cold | warm }
+      backend: { required: false, default: gha, description: docker gha | plain }
+      sizes: { required: false, default: '[500,1024]' }
+      scope: { required: false, default: s0, description: docker cache scope shared by a cold/warm pair }
+      probe: { required: true }
+permissions:
+  contents: read
+concurrency:
+  group: mkt-${{ inputs.runner }}
+  cancel-in-progress: false
+env:
+  DOCKER_BUILD_SUMMARY: "false"
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
+  CARGO_TERM_COLOR: never
+jobs:
+  cpu:
+    if: ${{ inputs.kind == 'cpu' }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
+    steps:
+      - name: host info
+        run: |
+          nproc; free -g | head -2; uname -r
+          grep -m1 'model name' /proc/cpuinfo || true
+      - uses: actions/checkout@v4
+        with: { repository: BurntSushi/ripgrep, ref: 0e8390a66fbcf6eeac1aeb0541b367663a597c79, path: rg, persist-credentials: false }
+      - name: rust toolchain
+        run: |
+          if command -v rustup >/dev/null; then rustup toolchain install 1.82.0 --profile minimal && rustup default 1.82.0
+          else curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.82.0; fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: cargo fetch
+        working-directory: rg
+        run: cargo fetch --locked
+      - name: cargo build --release (cold target)
+        working-directory: rg
+        run: |
+          rm -rf target
+          s=$(date +%s.%N); cargo build --release --locked --offline; e=$(date +%s.%N)
+          echo "MKT_CARGO_SECONDS=$(awk "BEGIN{print $e-$s}")"
+      - name: single-thread bench
+        run: |
+          openssl speed -seconds 10 -bytes 16384 sha256 2>/dev/null | tail -1 | sed 's/^/MKT_OPENSSL /'
+          python3 - <<'EOF'
+          import time
+          def work():
+              s=0
+              for i in range(30_000_000):
+                  s+=i*i%7
+              return s
+          t=[]
+          for _ in range(3):
+              a=time.perf_counter(); work(); t.append(time.perf_counter()-a)
+          print("MKT_PY_SECONDS="+",".join(f"{x:.3f}" for x in t))
+          EOF
+  cache-save:
+    if: ${{ inputs.kind == 'cache' }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 20
+    strategy: { max-parallel: 1, matrix: { size: '${{ fromJSON(inputs.sizes) }}' } }
+    steps:
+      - name: make random data
+        run: |
+          mkdir -p "$HOME/mkc"
+          head -c ${{ matrix.size }}M /dev/urandom > "$HOME/mkc/blob.bin"
+          sha256sum "$HOME/mkc/blob.bin" | tee "$HOME/mkc/blob.sha256"
+          echo "cache host: $(printf '%s' "$ACTIONS_RESULTS_URL" | sed -E 's#^(https?://[^/]+).*#\1#' | sed -E 's#//[^.]*\.#//*.#')"
+      - uses: actions/cache/save@v4
+        with:
+          path: ~/mkc
+          key: mkc-${{ inputs.runner }}-${{ matrix.size }}m-${{ github.run_id }}
+  cache-restore:
+    needs: cache-save
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 20
+    strategy: { max-parallel: 1, matrix: { size: '${{ fromJSON(inputs.sizes) }}' } }
+    steps:
+      - run: date +MKT_RESTORE_START=%s.%N
+      - id: r
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/mkc
+          key: mkc-${{ inputs.runner }}-${{ matrix.size }}m-${{ github.run_id }}
+          fail-on-cache-miss: true
+      - name: verify
+        run: |
+          date +MKT_RESTORE_END=%s.%N
+          echo "MKT_SIZE_MB=${{ matrix.size }} cache-hit=${{ steps.r.outputs.cache-hit }}"
+          sha256sum -c "$HOME/mkc/blob.sha256"
+  docker:
+    if: ${{ inputs.kind == 'docker' }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: umami-software/umami, ref: v3.4.1, persist-credentials: false }
+      - uses: docker/setup-buildx-action@v3
+        if: ${{ inputs.backend == 'gha' }}
+      - name: docker build (gha cache)
+        if: ${{ inputs.backend == 'gha' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: mkt-umami:ci
+          cache-from: ${{ inputs.mode == 'warm' && format('type=gha,scope=mkt-umami-{0}', inputs.scope) || '' }}
+          cache-to: type=gha,mode=max,scope=mkt-umami-${{ inputs.scope }}
+      - name: empty docker cache (cold)
+        if: ${{ inputs.backend == 'plain' && inputs.mode == 'cold' }}
+        run: |
+          docker builder prune -af >/dev/null; docker image prune -af >/dev/null
+          docker system df
+      - name: docker build (runner docker)
+        if: ${{ inputs.backend == 'plain' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: mkt-umami:ci
+      - run: docker image ls mkt-umami:ci

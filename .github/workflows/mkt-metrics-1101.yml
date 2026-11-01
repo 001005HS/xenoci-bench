@@ -118,11 +118,9 @@ jobs:
           tags: mkt-umami:ci
           cache-from: ${{ inputs.mode == 'warm' && format('type=gha,scope=mkt-umami-{0}', inputs.scope) || '' }}
           cache-to: type=gha,mode=max,scope=mkt-umami-${{ inputs.scope }}
-      - name: empty docker cache (cold)
-        if: ${{ inputs.backend == 'plain' && inputs.mode == 'cold' }}
-        run: |
-          docker builder prune -af >/dev/null; docker image prune -af >/dev/null
-          docker system df
+      - name: docker disk state
+        if: ${{ inputs.backend == 'plain' }}
+        run: docker system df
       - name: docker build (runner docker)
         if: ${{ inputs.backend == 'plain' }}
         uses: docker/build-push-action@v6
@@ -130,5 +128,6 @@ jobs:
           context: .
           push: false
           load: true
+          no-cache: ${{ inputs.mode == 'cold' }}
           tags: mkt-umami:ci
       - run: docker image ls mkt-umami:ci

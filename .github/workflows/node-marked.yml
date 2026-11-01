@@ -1,0 +1,38 @@
+name: node-marked
+run-name: node-marked ${{ inputs.runner }} ${{ inputs.tag }}
+# lx-test-2x 2026-11-02: Linux node "npm ci + build + unit tests" workload for the GitHub-2x check.
+# markedjs/marked v18.1.2 (37k stars), the same steps its own CI runs (tests.yml UnitTests job), node 22, no cache step.
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: ubuntu-24.04 | xenoci-2vcpu-ubuntu-2404
+        required: true
+      tag:
+        required: true
+permissions:
+  contents: read
+jobs:
+  node-marked:
+    name: node-marked
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 20
+    steps:
+      - name: checkout marked v18.1.2
+        uses: actions/checkout@v4
+        with:
+          repository: markedjs/marked
+          ref: 5beecae42b0beb07eaccc3a732560f56867a8301
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: npm ci
+        run: npm ci --no-audit --no-fund
+      - name: npm run build
+        run: npm run build
+      - name: unit tests
+        run: npm run test:unit
+      - name: spec tests
+        run: npm run test:specs
+      - name: cjs tests
+        run: npm run test:cjs

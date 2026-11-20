@@ -1,0 +1,19 @@
+.github/workflows/mac-zero.yml
+  s_d32a5a4f57574d::t_254e25694549d2 1-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "95463ec07a8f925972fde4e1446ef6ff06ddd1cb",
+  "prompts": {},
+  "sessions": {
+    "s_d32a5a4f57574d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "751615dd-1566-4466-84ad-de9d5afaa08d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "001005HS <99410048+001005HS@users.noreply.github.com>"
+    }
+  }
+}

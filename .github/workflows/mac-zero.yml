@@ -1,0 +1,37 @@
+name: mac-zero
+# Measurement (2026-11-21, 현수 "맥도 실측"): IceCubesApp b2db303 debug build with NO cache settings at all (default
+# DerivedData and SwiftPM paths, no actions/cache), GitHub macos-latest vs XenoCI, three pushes. Branch mac-zero-* only.
+on:
+  push:
+    branches: ['mac-zero-*']
+jobs:
+  zero-xc:
+    runs-on: xenoci-macos
+    timeout-minutes: 60
+    steps: &steps
+      - name: Machine
+        run: |
+          sysctl -n machdep.cpu.brand_string hw.ncpu hw.memsize; sw_vers -productVersion
+          XC=$(ls -d /Applications/Xcode_26.2*.app 2>/dev/null | head -1 || true)
+          [ -n "$XC" ] || XC=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || true)
+          [ -n "$XC" ] || XC=$(xcode-select -p | sed 's#/Contents/Developer##')
+          echo "DEVELOPER_DIR=$XC/Contents/Developer" >> "$GITHUB_ENV"; DEVELOPER_DIR="$XC/Contents/Developer" xcodebuild -version | head -1
+          du -sh ~/Library/Developer/Xcode/DerivedData ~/Library/Caches/org.swift.swiftpm 2>/dev/null || echo "no caches yet"
+      - name: Source
+        run: |
+          mkdir -p app && cd app
+          [ -d IceCubesApp ] || { curl -fsSL -o s.tgz https://github.com/Dimillian/IceCubesApp/archive/b2db3033fbf67a97b54d25d6dac2df8a029b26b1.tar.gz && tar xzf s.tgz && mv IceCubesApp-* IceCubesApp && rm s.tgz; }
+          printf 'DEVELOPMENT_TEAM =\nBUNDLE_ID_PREFIX = im.cicd.bench\n' > IceCubesApp/IceCubesApp.xcconfig
+      - name: Resolve packages
+        working-directory: app/IceCubesApp
+        run: xcodebuild -resolvePackageDependencies -scheme IceCubesApp -project IceCubesApp.xcodeproj -scmProvider system > ../resolve.log 2>&1 || { tail -30 ../resolve.log; exit 1; }
+      - name: Build
+        working-directory: app/IceCubesApp
+        run: |
+          xcodebuild build -scheme IceCubesApp -project IceCubesApp.xcodeproj -destination 'generic/platform=iOS Simulator' -configuration Debug \
+            -scmProvider system CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO > ../build.log 2>&1; rc=$?
+          grep -c "^CompileSwift\|^SwiftCompile" ../build.log || true; tail -3 ../build.log; exit $rc
+  zero-gh:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps: *steps

@@ -1,0 +1,145 @@
+name: agentloop-vs-macbox-1126
+run-name: agentloop-${{ inputs.mode }}-${{ inputs.probe }}
+# 2026-11-26: the agent loop macbox sells (build, test, change one line and test, launch and screenshot), run on our own
+# 512GB Mac (xenoci-macos, full image) so the two can be compared step by step. Two apps: agentloop/Counter (tiny, XcodeGen,
+# unit + UI tests) and IceCubesApp b2db3033 (a real app, compile heavy).
+# mode=cold: nothing kept. mode=sticky: DerivedData and SwiftPM on a Xeno-CI sticky disk (our cache), run twice to warm.
+# The job-level DEVELOPER_DIR names Xcode 26.5 only so the scheduler picks a full (512GB) host; the steps use Xcode 27.
+# Every step prints "T <name> <seconds>" so the times can be read from the log as well as from the jobs API.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: cold or sticky
+        required: true
+        default: cold
+      probe:
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: agentloop
+  cancel-in-progress: false
+env:
+  DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
+  W: ${{ github.workspace }}/al
+jobs:
+  loop:
+    name: loop
+    runs-on: xenoci-macos
+    timeout-minutes: 60
+    steps:
+      - name: host and xcode
+        shell: bash
+        run: |
+          sysctl -n hw.model hw.ncpu hw.memsize machdep.cpu.brand_string || true
+          sw_vers -productVersion; df -h / | tail -1
+          ls -d /Applications/Xcode*.app
+          XC=$(ls -d /Applications/Xcode_27*.app /Applications/Xcode-27*.app 2>/dev/null | sort -V | tail -1)
+          echo "DEVELOPER_DIR=$XC/Contents/Developer" >> "$GITHUB_ENV"
+          DEVELOPER_DIR="$XC/Contents/Developer" xcodebuild -version
+          mkdir -p "$W"
+      - uses: actions/checkout@v4
+        with:
+          path: bench
+          persist-credentials: false
+      - name: checkout IceCubesApp
+        uses: actions/checkout@v4
+        with:
+          repository: Dimillian/IceCubesApp
+          ref: b2db3033fbf67a97b54d25d6dac2df8a029b26b1
+          path: ice
+          persist-credentials: false
+      - name: sticky disk (derived + spm)
+        if: ${{ inputs.mode == 'sticky' }}
+        uses: Xeno-CI/actions/stickydisk@e2cedc9aa291ac81cd1beaa02131b84bd6e33746
+        with:
+          key: agentloop-1126
+          path: ${{ env.W }}
+      - name: xcodegen (tool, not timed against macbox)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v xcodegen >/dev/null; then
+            curl -fsSL -o /tmp/xg.zip https://github.com/yonaskolb/XcodeGen/releases/download/2.44.1/xcodegen.artifactbundle.zip
+            unzip -q /tmp/xg.zip -d /tmp/xg
+            XG=$(find /tmp/xg -type f -name xcodegen -perm -u+x | head -1)
+            mkdir -p "$HOME/bin"; cp "$XG" "$HOME/bin/xcodegen"; echo "$HOME/bin" >> "$GITHUB_PATH"
+          fi
+      - name: simulator pick
+        shell: bash
+        run: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys
+          d=json.load(sys.stdin)["devices"]
+          c=[(k,x) for k,v in d.items() if "iOS" in k for x in v if x["name"].startswith("iPhone")]
+          c.sort(key=lambda p:[int(n) for n in p[0].split("iOS-")[-1].split("-")])
+          print(c[-1][1]["udid"])')
+          xcrun simctl list devices | grep "$UDID"
+          echo "SIM=$UDID" >> "$GITHUB_ENV"
+      - name: counter build
+        shell: bash
+        working-directory: bench/agentloop/Counter
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/bin:$PATH"; s=$(date +%s)
+          xcodegen generate --quiet
+          xcodebuild build -scheme Counter -destination "id=$SIM" -derivedDataPath "$W/dd-counter" \
+            CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO > "$RUNNER_TEMP/c-build.log" 2>&1 || { tail -30 "$RUNNER_TEMP/c-build.log"; exit 1; }
+          echo "T counter_build $(( $(date +%s) - s ))"
+      - name: counter test (unit + UI)
+        shell: bash
+        working-directory: bench/agentloop/Counter
+        run: |
+          set -euo pipefail
+          s=$(date +%s)
+          xcodebuild test -scheme Counter -destination "id=$SIM" -derivedDataPath "$W/dd-counter" \
+            CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO > "$RUNNER_TEMP/c-test.log" 2>&1 || { grep -E "error:|failed" "$RUNNER_TEMP/c-test.log" | head -20; tail -20 "$RUNNER_TEMP/c-test.log"; exit 1; }
+          grep -E "Test Suite 'All tests'|Executed" "$RUNNER_TEMP/c-test.log" | tail -2 || true
+          echo "T counter_test $(( $(date +%s) - s ))"
+      - name: counter change one line and test
+        shell: bash
+        working-directory: bench/agentloop/Counter
+        run: |
+          set -euo pipefail
+          sed -i '' 's/Text("행 \\(i)")/Text("행 \\(i) ")/' Counter/ContentView.swift
+          s=$(date +%s)
+          xcodebuild test -scheme Counter -destination "id=$SIM" -derivedDataPath "$W/dd-counter" \
+            CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO > "$RUNNER_TEMP/c-test2.log" 2>&1 || { tail -20 "$RUNNER_TEMP/c-test2.log"; exit 1; }
+          echo "T counter_edit_test $(( $(date +%s) - s ))"
+      - name: counter launch and screenshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          s=$(date +%s)
+          xcrun simctl bootstatus "$SIM" -b >/dev/null
+          APP=$(find "$W/dd-counter/Build/Products" -name Counter.app -path '*iphonesimulator*' | head -1)
+          xcrun simctl install "$SIM" "$APP"
+          xcrun simctl launch "$SIM" dev.example.macboxtrial.Counter
+          sleep 1
+          xcrun simctl io "$SIM" screenshot "$RUNNER_TEMP/shot.png"
+          ls -la "$RUNNER_TEMP/shot.png"
+          echo "T counter_screenshot $(( $(date +%s) - s ))"
+      - name: icecubes build
+        shell: bash
+        working-directory: ice
+        run: |
+          set -euo pipefail
+          printf 'DEVELOPMENT_TEAM =\nBUNDLE_ID_PREFIX = com.xenoci.bench\n' > IceCubesApp.xcconfig
+          s=$(date +%s)
+          xcodebuild build -project IceCubesApp.xcodeproj -scheme IceCubesApp -configuration Debug \
+            -destination "id=$SIM" -clonedSourcePackagesDirPath "$W/spm" -derivedDataPath "$W/dd-ice" -scmProvider system \
+            CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO > "$RUNNER_TEMP/i-build.log" 2>&1 || { grep -E "error:|BUILD FAILED" "$RUNNER_TEMP/i-build.log" | head -30; tail -20 "$RUNNER_TEMP/i-build.log"; exit 1; }
+          echo "T icecubes_build $(( $(date +%s) - s ))"
+      - name: icecubes change one line and build
+        shell: bash
+        working-directory: ice
+        run: |
+          set -euo pipefail
+          F=$(grep -rl "struct AppView" IceCubesApp --include=*.swift | head -1)
+          echo "// agentloop $(date +%s)" >> "$F"
+          s=$(date +%s)
+          xcodebuild build -project IceCubesApp.xcodeproj -scheme IceCubesApp -configuration Debug \
+            -destination "id=$SIM" -clonedSourcePackagesDirPath "$W/spm" -derivedDataPath "$W/dd-ice" -scmProvider system \
+            CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO > "$RUNNER_TEMP/i-build2.log" 2>&1 || { tail -20 "$RUNNER_TEMP/i-build2.log"; exit 1; }
+          echo "T icecubes_edit_build $(( $(date +%s) - s ))"

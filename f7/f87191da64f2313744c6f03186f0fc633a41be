@@ -1,0 +1,29 @@
+.github/workflows/agentloop-vs-macbox-1126.yml
+  s_2c8243b4e6462a::t_99cc68a70dfb7d 1-145
+agentloop/Counter/Counter/ContentView.swift
+  s_2c8243b4e6462a::t_ffbaf5a5c98e94 1-39
+agentloop/Counter/Counter/CounterApp.swift
+  s_2c8243b4e6462a::t_9315f734d3d2ef 1-8
+agentloop/Counter/CounterTests/CounterTests.swift
+  s_2c8243b4e6462a::t_7c72a3c15d0604 1-15
+agentloop/Counter/CounterUITests/CounterUITests.swift
+  s_2c8243b4e6462a::t_21beff4796e654 1-18
+agentloop/Counter/project.yml
+  s_2c8243b4e6462a::t_b7bf987092f3d1 1-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f7f87191da64f2313744c6f03186f0fc633a41be",
+  "prompts": {},
+  "sessions": {
+    "s_2c8243b4e6462a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f6249877-b9f0-4215-ac56-ba0f835b9ef0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "001005HS <99410048+001005HS@users.noreply.github.com>"
+    }
+  }
+}

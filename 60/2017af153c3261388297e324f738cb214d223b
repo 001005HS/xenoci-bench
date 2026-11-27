@@ -1,0 +1,14 @@
+.github/workflows/aes-m4-1127.yml
+  h_e90f0321dd544b 1-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "602017af153c3261388297e324f738cb214d223b",
+  "prompts": {},
+  "humans": {
+    "h_e90f0321dd544b": {
+      "author": "001005HS <99410048+001005HS@users.noreply.github.com>"
+    }
+  }
+}

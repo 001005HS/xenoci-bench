@@ -1,0 +1,25 @@
+name: aes-m4-1127
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  mac:
+    runs-on: xenoci-macos
+    timeout-minutes: 20
+    steps:
+      - name: aes
+        shell: bash {0}
+        run: |
+          echo "AES host=$(hostname) chip=$(sysctl -n machdep.cpu.brand_string) ncpu=$(sysctl -n hw.ncpu) aes=$(sysctl -n hw.optional.arm.FEAT_AES 2>/dev/null)"
+          openssl version
+          for c in aes-256-xts aes-256-gcm aes-256-ctr; do openssl speed -elapsed -seconds 3 -bytes 65536 -evp $c 2>/dev/null | tail -1 | sed "s/^/AES openssl $c 64K: /"; done
+          openssl speed -elapsed -seconds 3 -bytes 4096 -evp aes-256-xts 2>/dev/null | tail -1 | sed "s/^/AES openssl xts 4K: /"
+          command -v node || { curl -fsSL https://nodejs.org/dist/v22.11.0/node-v22.11.0-darwin-arm64.tar.gz | tar xz -C /tmp; export PATH=/tmp/node-v22.11.0-darwin-arm64/bin:$PATH; }
+          node -e '
+          const c=require("crypto");const key=c.randomBytes(64);const buf=c.randomBytes(64<<20);
+          for(const s of [512,4096,65536]){const t=process.hrtime.bigint();const iv=Buffer.alloc(16);
+           for(let o=0;o<buf.length;o+=s){iv.writeBigUInt64LE(BigInt(o/s));const e=c.createCipheriv("aes-256-xts",key,iv);e.update(buf.subarray(o,o+s));e.final();}
+           const ms=Number(process.hrtime.bigint()-t)/1e6;console.log("AES node xts sector="+s+" MiBps="+(64/(ms/1000)).toFixed(0));}'
+          dd if=/dev/zero of=/tmp/z bs=4m count=256 2>&1 | tail -1 | sed 's/^/AES disk write 1G: /'
+          sync; sudo purge; dd if=/tmp/z of=/dev/null bs=4m 2>&1 | tail -1 | sed 's/^/AES disk read 1G: /'
